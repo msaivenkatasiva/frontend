@@ -26,15 +26,6 @@ pipeline {
             }
         }
 
-        stage('install dependencies') {
-            steps {
-                sh """
-                 npm install
-                 ls -ltr
-                 echo "application version: $appVersion" 
-                """
-            }
-        }
         stage('Build'){
             steps {
                 sh """
