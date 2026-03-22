@@ -1,81 +1,180 @@
+// pipeline {
+//     agent {
+//         label 'AGENT-1'
+//     }
+//     options {
+//         timeout(time: 60, unit: 'MINUTES')
+//         disableConcurrentBuilds()
+//         ansiColor('xterm')
+//     }
+//     environment {
+//         def appVersion = '' //variable declaration
+//         def nexusUrl = 'nexus.devops76.sbs:8081'
+//     }
+//     // parameters{
+//     //     booleanParam(name: 'deploy', defaultValue: false, description: 'Toggle this value')
+//     // }
+    
+//     stages {
+//         stage('read the version') {
+//             steps {
+//                 script {
+//                 def packageJson = readJSON file: 'package.json'
+//                 appVersion = packageJson.version
+//                 echo "application version: $appVersion"
+//                 }
+//             }
+//         }
+
+//         stage('Build'){
+//             steps {
+//                 sh """
+//                 zip -q -r frontend-${appVersion}.zip * -x Jenkinsfile -x frontend-${appVersion}.zip
+//                 ls -ltr
+//                 """
+//             }
+//         }
+
+//         stage('sonar scan'){
+//             environment {
+//                 scannerHome = tool 'sonar-7.0' //refering scanner CLI
+//             }
+//             steps {
+//                 script {
+//                     withSonarQubeEnv('sonar-7.0') { //referring sonar server
+//                         sh "${scannerHome}/bin/sonar-scanner"
+//                     }
+//                 }
+//             }
+//         }
+
+//         stage("Quality Gate") {
+//             steps {
+//               timeout(time: 30, unit: 'MINUTES') {
+//                 waitForQualityGate abortPipeline: true
+//               }
+//             }
+//         }
+
+//         stage('Nexus Artifact Upload'){
+//             steps {
+//                 script{
+//                     nexusArtifactUploader(
+//                         nexusVersion: 'nexus3',
+//                         protocol: 'http',
+//                         nexusUrl: "${nexusUrl}",
+//                         groupId: 'com.expense',
+//                         version: "${appVersion}",
+//                         repository: "frontend",
+//                         credentialsId: 'nexus-auth',
+//                         artifacts: [
+//                             [artifactId: "frontend",
+//                             classifier: '',
+//                             file: 'frontend-' + "${appVersion}" + '.zip',
+//                             type: 'zip']
+//                         ]
+//                     )
+//                 }
+//             }
+//         }
+//         stage('Deploy') {
+//             steps{
+//                 script{
+//                     def params = [
+//                     string(name: 'appVersion', value: "${appVersion}")
+//                     ]
+//                     build job: 'frontend-deploy', parameters: params, propagate: false
+//                 } 
+//             }
+//         }
+//     }
+//     post {
+//         always {
+//             echo 'I Will run always'
+//             deleteDir()
+//         }
+//         success {
+//             echo 'I will run when pipeline is success'
+//         }
+//         failure {
+//             echo 'i will run when pipeline is failure'
+//         }
+//     }
+// }
+
+// the below pipe line is for ecr and above is  terraform deployment with ansible configuration
+
 pipeline {
     agent {
         label 'AGENT-1'
     }
     options {
-        timeout(time: 60, unit: 'MINUTES')
+        timeout(time: 30, unit: 'MINUTES')
         disableConcurrentBuilds()
         ansiColor('xterm')
     }
-    environment {
+    environment{
         def appVersion = '' //variable declaration
-        def nexusUrl = 'nexus.devops76.sbs:8081'
+        nexusUrl = ''
+        region = "us-east-1"
+        account_id = "315069654700"
     }
-    // parameters{
-    //     booleanParam(name: 'deploy', defaultValue: false, description: 'Toggle this value')
-    // }
-    
     stages {
-        stage('read the version') {
-            steps {
-                script {
-                def packageJson = readJSON file: 'package.json'
-                appVersion = packageJson.version
-                echo "application version: $appVersion"
+        stage('read the version'){
+            steps{
+                script{
+                    def packageJson = readJSON file: 'package.json'
+                    appVersion = packageJson.version
+                    echo "application version: $appVersion"
                 }
             }
         }
-
+        
         stage('Build'){
-            steps {
+            steps{
                 sh """
                 zip -q -r frontend-${appVersion}.zip * -x Jenkinsfile -x frontend-${appVersion}.zip
                 ls -ltr
                 """
             }
         }
-        stage('Nexus Artifact Upload'){
-            steps {
-                script{
-                    nexusArtifactUploader(
-                        nexusVersion: 'nexus3',
-                        protocol: 'http',
-                        nexusUrl: "${nexusUrl}",
-                        groupId: 'com.expense',
-                        version: "${appVersion}",
-                        repository: "frontend",
-                        credentialsId: 'nexus-auth',
-                        artifacts: [
-                            [artifactId: "frontend",
-                            classifier: '',
-                            file: 'frontend-' + "${appVersion}" + '.zip',
-                            type: 'zip']
-                        ]
-                    )
-                }
-            }
-        }
-        stage('Deploy') {
+
+        stage('Docker build'){
             steps{
-                script{
-                    def params = [
-                    string(name: 'appVersion', value: "${appVersion}")
-                    ]
-                    build job: 'frontend-deploy', parameters: params, propagate: false
-                } 
+                sh """
+                    aws ecr get-login-password --region ${region} | docker login --username AWS --password-stdin ${account_id}.dkr.ecr.${region}.amazonaws.com
+
+                    docker build -t ${account_id}.dkr.ecr.${region}.amazonaws.com/expense-frontend:${appVersion} .
+
+                    docker push ${account_id}.dkr.ecr.${region}.amazonaws.com/expense-frontend:${appVersion}
+                """
             }
         }
+
+        stage('Deploy'){
+            steps{
+                sh """
+                    aws eks update-kubeconfig --region us-east-1 --name expense-dev
+                    cd helm
+                    sed -i 's/IMAGE_VERSION/${appVersion}/g' values.yaml
+                    helm upgrade frontend .
+                """
+            }
+        }
+
+
+        
     }
-    post {
-        always {
-            echo 'I Will run always'
+    post { 
+        always { 
+            echo 'I will always say Hello again!'
             deleteDir()
         }
-        success {
+        success { 
             echo 'I will run when pipeline is success'
         }
-        failure {
-            echo 'i will run when pipeline is failure'
+        failure { 
+            echo 'I will run when pipeline is failure'
         }
     }
 }
