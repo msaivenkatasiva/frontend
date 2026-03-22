@@ -156,7 +156,7 @@ pipeline {
                 sh """
                     cd helm
                     sed -i 's/IMAGE_VERSION/${appVersion}/g' values.yaml
-                    helm upgrade frontend .
+                    helm install frontend .
                 """
             }
         }
