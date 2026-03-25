@@ -25,6 +25,7 @@ spec:
     spec:
       containers:
       - name: frontend
+        imagePullPolicy: Always
         image: 210749645231.dkr.ecr.us-east-1.amazonaws.com/expense-frontend:{{ .Values.deployment.imageVersion }}
         volumeMounts:
         - name: nginx-conf
